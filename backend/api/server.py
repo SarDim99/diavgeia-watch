@@ -20,12 +20,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from backend.db_manager import DatabaseManager
-from backend.llm_client import LLMClient
-from backend.agent_sql import SQLAgent
-from backend.cpv_lookup import CPVLookup
-from backend.org_resolver import OrgResolver
-
+from backend.db.manager import DatabaseManager
+from backend.agent.llm_client import LLMClient
+from backend.agent.sql_agent import SQLAgent
+from backend.agent.cpv_lookup import CPVLookup
+from backend.agent.org_resolver import OrgResolver
 logger = logging.getLogger(__name__)
 
 # ============================================================

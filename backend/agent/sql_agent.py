@@ -36,12 +36,11 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
-from backend.llm_client import LLMClient, LLMResponse, LLMClientError
-from backend.db_manager import DatabaseManager
-from backend.cpv_lookup import CPVLookup
-from backend.org_resolver import OrgResolver
-from backend.bureaucracy import BureaucracyLayer
-
+from backend.agent.llm_client import LLMClient
+from backend.db.manager import DatabaseManager
+from backend.agent.cpv_lookup import CPVLookup
+from backend.agent.org_resolver import OrgResolver
+from backend.agent.bureaucracy import BureaucracyHelper
 logger = logging.getLogger(__name__)
 
 

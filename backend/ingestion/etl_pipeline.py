@@ -24,8 +24,8 @@ import sys
 from datetime import date, timedelta
 from typing import Optional
 
-from backend.api_client import DiavgeiaClient, DECISION_TYPES, DiavgeiaAPIError
-from backend.db_manager import DatabaseManager
+from backend.ingestion.api_client import DiavgeiaClient, DECISION_TYPES, DiavgeiaAPIError
+from backend.db.manager import DatabaseManager
 
 # ============================================================
 # Logging Setup

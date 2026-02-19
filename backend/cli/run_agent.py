@@ -21,11 +21,11 @@ import argparse
 import logging
 import sys
 
-from backend.llm_client import LLMClient
-from backend.db_manager import DatabaseManager
-from backend.agent_sql import SQLAgent
-from backend.cpv_lookup import CPVLookup
-from backend.org_resolver import OrgResolver
+from backend.db.manager import DatabaseManager
+from backend.agent.llm_client import LLMClient
+from backend.agent.sql_agent import SQLAgent
+from backend.agent.cpv_lookup import CPVLookup
+from backend.agent.org_resolver import OrgResolver
 
 logging.basicConfig(
     level=logging.INFO,

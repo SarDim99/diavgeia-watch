@@ -26,8 +26,8 @@ import psycopg2.extras
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.db_manager import DatabaseManager
-from backend.api_client import DiavgeiaClient
+from backend.db.manager import DatabaseManager
+from backend.ingestion.api_client import DiavgeiaClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -265,8 +265,8 @@ def harvest_month(db: DatabaseManager, year_month: str):
     print(f"  Types: {types}")
     print(f"  This may take several minutes...\n")
 
-    from backend.api_client import DiavgeiaClient
-    from backend.etl_pipeline import ETLPipeline
+    from backend.ingestion.api_client import DiavgeiaClient
+    from backend.ingestion.etl_pipeline import ETLPipeline
 
     # ETLPipeline.run() manages its own DB connection, so give it a fresh manager
     client = DiavgeiaClient()

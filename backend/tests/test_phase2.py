@@ -209,10 +209,11 @@ def test_database():
 # ============================================================
 def test_agent(db):
     header("Test 5: SQL Agent (End-to-End)")
-    from backend.llm_client import LLMClient
-    from backend.agent_sql import SQLAgent, is_safe_sql
-    from backend.cpv_lookup import CPVLookup
-    from backend.org_resolver import OrgResolver
+    from backend.agent.cpv_lookup import CPVLookup
+    from backend.agent.org_resolver import OrgResolver
+    from backend.agent.llm_client import LLMClient
+    from backend.db.manager import DatabaseManager
+    from backend.agent.sql_agent import SQLAgent, is_safe_sql
 
     # Test SQL safety checker first
     print(f"\n  {BOLD}5a. SQL Safety Checker{RESET}")
