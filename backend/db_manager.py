@@ -160,7 +160,7 @@ class DatabaseManager:
             """, {
                 "ada": ada,
                 "subject": decision.get("subject"),
-                "decision_type": decision.get("decisionTypeUid", "Β.2.1"),
+                "decision_type": decision.get("decisionTypeId") or decision.get("decisionTypeUid", "Β.2.1"),
                 "status": decision.get("status"),
                 "issue_date": issue_date,
                 "submission_ts": submission_ts,

@@ -337,6 +337,90 @@ def recent_decisions(limit: int = 20):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/network")
+def get_network(min_amount: float = 10000, max_edges: int = 80):
+    """
+    Network graph data: org → contractor spending relationships.
+    Returns nodes and edges for a force-directed graph.
+    """
+    sql = """
+        WITH edges AS (
+            SELECT
+                d.org_name,
+                e.contractor_name,
+                SUM(e.amount) AS total,
+                COUNT(DISTINCT d.ada) AS contracts
+            FROM decisions d
+            JOIN expense_items e ON e.decision_id = d.id
+            WHERE e.contractor_name IS NOT NULL AND e.contractor_name != ''
+              AND d.org_name IS NOT NULL AND d.org_name != ''
+              AND e.amount > 0
+            GROUP BY d.org_name, e.contractor_name
+            HAVING SUM(e.amount) >= %s
+            ORDER BY total DESC
+            LIMIT %s
+        )
+        SELECT * FROM edges
+    """
+    try:
+        conn = db.pool.getconn()
+        cur = conn.cursor()
+        cur.execute(sql, (min_amount, max_edges))
+        cols = [desc[0] for desc in cur.description]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        cur.close()
+        db.pool.putconn(conn)
+
+        # Build unique nodes and edges
+        orgs = set()
+        contractors = set()
+        edges = []
+
+        for row in rows:
+            org = row["org_name"]
+            con = row["contractor_name"]
+            orgs.add(org)
+            contractors.add(con)
+            edges.append({
+                "source": org,
+                "target": con,
+                "amount": float(row["total"]),
+                "contracts": row["contracts"],
+            })
+
+        nodes = []
+        # Calculate total for sizing
+        org_totals = {}
+        con_totals = {}
+        for e in edges:
+            org_totals[e["source"]] = org_totals.get(e["source"], 0) + e["amount"]
+            con_totals[e["target"]] = con_totals.get(e["target"], 0) + e["amount"]
+
+        for org in orgs:
+            nodes.append({
+                "id": org,
+                "type": "org",
+                "total": org_totals.get(org, 0),
+            })
+        for con in contractors:
+            nodes.append({
+                "id": con,
+                "type": "contractor",
+                "total": con_totals.get(con, 0),
+            })
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "org_count": len(orgs),
+                "contractor_count": len(contractors),
+                "edge_count": len(edges),
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============================================================
 # Run directly

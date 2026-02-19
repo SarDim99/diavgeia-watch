@@ -41,73 +41,71 @@ RESET = "\033[0m"
 
 def backfill_org_names(db: DatabaseManager):
     """
-    Fix missing org_name by extracting from raw_json.
-    The Diavgeia API stores org info in different places depending on
-    the decision type. This tries multiple extraction strategies.
+    Fix missing org_name by:
+    1. Trying raw_json fields
+    2. Looking up org names from Diavgeia API by organizationId
     """
-    print(f"\n{BOLD}{CYAN}Backfilling missing org_name from raw_json...{RESET}")
+    print(f"\n{BOLD}{CYAN}Backfilling missing org_name...{RESET}")
 
     conn = db.pool.getconn()
     cur = conn.cursor()
 
-    # Find records with missing org_name
+    # Find unique org_ids with missing names
     cur.execute("""
-        SELECT id, ada, org_id, raw_json
+        SELECT DISTINCT
+            COALESCE(org_id, raw_json->>'organizationId') AS oid
         FROM decisions
-        WHERE org_name IS NULL OR org_name = '' OR org_name = 'N/A'
+        WHERE (org_name IS NULL OR org_name = '' OR org_name = 'N/A')
+          AND (org_id IS NOT NULL AND org_id != ''
+               OR raw_json->>'organizationId' IS NOT NULL)
     """)
-    rows = cur.fetchall()
-    print(f"  Found {len(rows)} decisions with missing org_name")
+    org_ids = [row[0] for row in cur.fetchall() if row[0]]
+    print(f"  Found {len(org_ids)} unique org IDs needing name lookup")
 
-    if not rows:
+    if not org_ids:
         print(f"  {GREEN}✓ No fixes needed{RESET}")
         db.pool.putconn(conn)
         return
 
+    # Look up org names from Diavgeia API
+    import requests
+    import time
+
+    org_names = {}
+    for i, oid in enumerate(org_ids):
+        try:
+            url = f"https://diavgeia.gov.gr/luminapi/opendata/organizations/{oid}"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                name = data.get("label") or data.get("name") or data.get("abbreviation")
+                if name:
+                    org_names[oid] = name
+                    if (i + 1) % 20 == 0:
+                        print(f"    Looked up {i+1}/{len(org_ids)} orgs...")
+            time.sleep(0.3)  # Rate limit
+        except Exception as e:
+            logger.warning(f"Failed to look up org {oid}: {e}")
+
+    print(f"  Resolved {len(org_names)} org names from API")
+
+    # Update the database
     fixed = 0
-    for row_id, ada, org_id, raw_json in rows:
-        if not raw_json:
-            continue
-
-        raw = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
-        org_name = None
-
-        # Strategy 1: organizationLabel (most common)
-        org_name = raw.get("organizationLabel")
-
-        # Strategy 2: extraFieldValues.org.name
-        if not org_name:
-            extra = raw.get("extraFieldValues", {})
-            if isinstance(extra, dict):
-                org_field = extra.get("org", {})
-                if isinstance(org_field, dict):
-                    org_name = org_field.get("name") or org_field.get("label")
-
-        # Strategy 3: organizations array
-        if not org_name:
-            orgs = raw.get("organizations", [])
-            if isinstance(orgs, list) and orgs:
-                org_name = orgs[0].get("label") or orgs[0].get("name")
-
-        # Strategy 4: unitLabel (organizational unit)
-        if not org_name:
-            org_name = raw.get("unitLabel")
-
-        if org_name and org_name.strip():
-            cur.execute(
-                "UPDATE decisions SET org_name = %s WHERE id = %s",
-                (org_name.strip(), row_id)
-            )
-            fixed += 1
+    for oid, name in org_names.items():
+        cur.execute("""
+            UPDATE decisions
+            SET org_name = %s,
+                org_id = COALESCE(NULLIF(org_id, ''), %s)
+            WHERE (org_name IS NULL OR org_name = '' OR org_name = 'N/A')
+              AND (org_id = %s OR raw_json->>'organizationId' = %s)
+        """, (name, oid, oid, oid))
+        fixed += cur.rowcount
 
     conn.commit()
     cur.close()
     db.pool.putconn(conn)
 
-    print(f"  {GREEN}✓ Fixed {fixed}/{len(rows)} records{RESET}")
-
-    # Also fix org_id if it's empty but present in raw_json
-    backfill_org_ids(db)
+    print(f"  {GREEN}✓ Updated {fixed} records with org names{RESET}")
 
 
 def backfill_org_ids(db: DatabaseManager):
@@ -142,30 +140,21 @@ def backfill_org_ids(db: DatabaseManager):
 
 
 def backfill_decision_types(db: DatabaseManager):
-    """Fix decision_type from raw_json (all stored as Β.2.1 due to ETL bug)."""
+    """Fix decision_type from raw_json."""
     print(f"\n{BOLD}{CYAN}Backfilling decision_type from raw_json...{RESET}")
 
     conn = db.pool.getconn()
     cur = conn.cursor()
 
+    # The API uses 'decisionTypeId' (e.g. "Δ.1", "Β.1.3")
     cur.execute("""
-        SELECT id, raw_json
-        FROM decisions
-        WHERE raw_json IS NOT NULL
+        UPDATE decisions
+        SET decision_type = raw_json->>'decisionTypeId'
+        WHERE raw_json->>'decisionTypeId' IS NOT NULL
+          AND raw_json->>'decisionTypeId' != ''
+          AND decision_type != raw_json->>'decisionTypeId'
     """)
-    rows = cur.fetchall()
-
-    fixed = 0
-    for row_id, raw_json in rows:
-        raw = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
-        dt = raw.get("decisionTypeId") or raw.get("decisionTypeUid")
-        if dt:
-            cur.execute(
-                "UPDATE decisions SET decision_type = %s WHERE id = %s AND decision_type != %s",
-                (str(dt), row_id, str(dt))
-            )
-            if cur.rowcount > 0:
-                fixed += 1
+    fixed = cur.rowcount
 
     conn.commit()
     cur.close()

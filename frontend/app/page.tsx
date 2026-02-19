@@ -6,6 +6,7 @@ import SpendingChart from "@/components/SpendingChart";
 import AnomalyPanel from "@/components/AnomalyPanel";
 import TopContractors from "@/components/TopContractors";
 import { Search } from "lucide-react";
+import NetworkGraph from "@/components/NetworkGraph";
 
 export default function Home() {
   return (
@@ -53,6 +54,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <NetworkGraph />
       </main>
 
       {/* Footer */}
