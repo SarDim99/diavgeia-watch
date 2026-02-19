@@ -40,6 +40,7 @@ from backend.llm_client import LLMClient, LLMResponse, LLMClientError
 from backend.db_manager import DatabaseManager
 from backend.cpv_lookup import CPVLookup
 from backend.org_resolver import OrgResolver
+from backend.bureaucracy import BureaucracyLayer
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +49,34 @@ logger = logging.getLogger(__name__)
 # System Prompt — teaches the LLM about our schema
 # ============================================================
 
-SYSTEM_PROMPT = """You generate PostgreSQL SELECT queries for a Greek government spending database.
+SYSTEM_PROMPT = """You generate PostgreSQL SELECT queries for a Greek government spending database (Diavgeia/Δι@ύγεια).
 
 SCHEMA:
-  decisions(id, ada TEXT UNIQUE, subject TEXT, decision_type TEXT, status TEXT, issue_date DATE, org_id TEXT, org_name TEXT, document_url TEXT)
+  decisions(id, ada TEXT UNIQUE, subject TEXT, decision_type TEXT, status TEXT, issue_date DATE, org_id TEXT, org_name TEXT, org_afm TEXT, document_url TEXT)
   expense_items(id, decision_id BIGINT FK->decisions.id, ada TEXT, contractor_afm TEXT, contractor_name TEXT, amount NUMERIC, currency TEXT, cpv_code TEXT, kae_code TEXT)
 
 JOIN: decisions d JOIN expense_items e ON e.decision_id = d.id
+NOTE: Not all decisions have expense_items. For queries about decision subjects/counts (not amounts), use decisions table alone or LEFT JOIN.
+
+KEY FIELDS:
+- subject: Greek text describing the decision (use ILIKE for keyword search)
+- decision_type: 'Β.2.1' (expenditure), 'Β.1.3' (commitment), 'Δ.1' (contract), etc.
+- cpv_code: EU procurement category code (use LIKE prefix match)
+- kae_code: Greek budget code KAE/ALE (use LIKE prefix match)
+- contractor_afm: contractor tax ID (9 digits)
+- org_afm: organization tax ID
 
 RULES:
 - ONLY SELECT. Never INSERT/UPDATE/DELETE/DROP.
-- CRITICAL: Do NOT add WHERE clauses unless the user EXPLICITLY mentions a filter (specific category, organization, date, etc). General questions like "top contractors" or "total spending" must have NO WHERE clause.
+- CRITICAL: Do NOT add WHERE clauses unless the user EXPLICITLY mentions a filter. General questions like "top contractors" or "total spending" must have NO WHERE clause.
 - Use SUM(e.amount) for "how much/πόσο" questions.
 - Use COUNT(DISTINCT d.ada) for "how many/πόσες" questions.
-- CPV codes: use LIKE prefix match (e.g. cpv_code LIKE '9091%') ONLY when user mentions a specific spending category like "cleaning" or "IT".
+- CPV codes: use LIKE prefix match ONLY when user mentions a specific spending category.
+- For Greek bureaucratic terms in the subject, use: subject ILIKE '%TERM%'
 - Org filter: use org_id = 'UID' ONLY when a UID is provided in context hints.
 - Dates: EXTRACT(YEAR FROM d.issue_date) = YYYY
 - Always add LIMIT (default 20).
+- Use context hints provided in [Context hints: ...] to inform your query.
 
 EXAMPLES:
 Q: "Top 5 organizations by spending"
@@ -75,6 +87,21 @@ SQL: SELECT e.contractor_name, SUM(e.amount) AS total FROM decisions d JOIN expe
 
 Q: "How much was spent on cleaning in Athens?"
 SQL: SELECT SUM(e.amount) FROM decisions d JOIN expense_items e ON e.decision_id = d.id WHERE e.cpv_code LIKE '9091%' AND d.org_id = '6105'
+
+Q: "Show me all direct awards (απευθείας αναθέσεις)"
+SQL: SELECT d.ada, d.org_name, d.subject, SUM(e.amount) AS total FROM decisions d JOIN expense_items e ON e.decision_id = d.id WHERE d.subject ILIKE '%ΑΠΕΥΘΕΙΑΣ%ΑΝΑΘΕΣ%' GROUP BY d.ada, d.org_name, d.subject ORDER BY total DESC LIMIT 20
+
+Q: "Find decisions for contractor with AFM 094270233"
+SQL: SELECT d.ada, d.org_name, d.subject, e.amount FROM decisions d JOIN expense_items e ON e.decision_id = d.id WHERE e.contractor_afm = '094270233' ORDER BY e.amount DESC LIMIT 20
+
+Q: "Spending on fuel (καύσιμα) by organization"
+SQL: SELECT d.org_name, SUM(e.amount) AS total FROM decisions d JOIN expense_items e ON e.decision_id = d.id WHERE e.cpv_code LIKE '091%' OR d.subject ILIKE '%ΚΑΥΣΙΜ%' GROUP BY d.org_name ORDER BY total DESC LIMIT 20
+
+Q: "Show budget commitments (αναλήψεις υποχρεώσεων)"
+SQL: SELECT d.ada, d.org_name, d.subject, d.issue_date FROM decisions d WHERE d.subject ILIKE '%ΑΝΑΛΗΨ%ΥΠΟΧΡΕΩΣ%' ORDER BY d.issue_date DESC LIMIT 20
+
+Q: "How many direct awards exist?"
+SQL: SELECT COUNT(*) FROM decisions d WHERE d.subject ILIKE '%ΑΠΕΥΘΕΙΑΣ%ΑΝΑΘΕΣ%' LIMIT 1
 
 OUTPUT: Only a JSON object, no markdown, no backticks:
 {{"thinking":"...","resolved_org":"UID or null","resolved_cpv":"code or null","sql":"SELECT ...","explanation":"..."}}"""
@@ -155,6 +182,7 @@ class SQLAgent:
         self.db = db
         self.cpv = cpv_lookup or CPVLookup()
         self.orgs = org_resolver or OrgResolver(db_manager=db)
+        self.bureau = BureaucracyLayer()
         self.max_retries = max_retries
 
         # The system prompt is compact — entity resolution
@@ -329,8 +357,8 @@ class SQLAgent:
 
     def _pre_resolve(self, question: str) -> str:
         """
-        Pre-resolve organizations and CPV codes from the question
-        to give the LLM concrete hints.
+        Pre-resolve organizations, CPV codes, and bureaucratic terms
+        from the question to give the LLM concrete hints.
         """
         hints = []
 
@@ -347,6 +375,11 @@ class SQLAgent:
                     hints.append(
                         f"CPV match: '{r['description_en']}' = code {r['code']}"
                     )
+
+        # Bureaucratic intelligence layer
+        bureau_result = self.bureau.preprocess(question)
+        if bureau_result["context_text"]:
+            hints.append(bureau_result["context_text"])
 
         return "; ".join(hints) if hints else ""
 

@@ -161,12 +161,9 @@ def top_spenders(limit: int = 10):
         LIMIT %s
     """
     try:
-        with db.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (limit,))
-                cols = [desc[0] for desc in cur.description]
-                rows = [dict(zip(cols, row)) for row in cur.fetchall()]
-            db.pool.putconn(conn)
+        with db.get_cursor(commit=False) as cur:
+            cur.execute(sql, (limit,))
+            rows = [dict(row) for row in cur.fetchall()]
         return {"data": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,12 +182,9 @@ def top_contractors(limit: int = 10):
         LIMIT %s
     """
     try:
-        with db.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (limit,))
-                cols = [desc[0] for desc in cur.description]
-                rows = [dict(zip(cols, row)) for row in cur.fetchall()]
-            db.pool.putconn(conn)
+        with db.get_cursor(commit=False) as cur:
+            cur.execute(sql, (limit,))
+            rows = [dict(row) for row in cur.fetchall()]
         return {"data": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -208,17 +202,14 @@ def spending_by_date():
         ORDER BY d.issue_date
     """
     try:
-        with db.pool.getconn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql)
-                cols = [desc[0] for desc in cur.description]
-                rows = []
-                for row in cur.fetchall():
-                    d = dict(zip(cols, row))
-                    d["issue_date"] = d["issue_date"].isoformat() if d["issue_date"] else None
-                    d["total"] = float(d["total"]) if d["total"] else 0
-                    rows.append(d)
-            db.pool.putconn(conn)
+        with db.get_cursor(commit=False) as cur:
+            cur.execute(sql)
+            rows = []
+            for row in cur.fetchall():
+                d = dict(row)
+                d["issue_date"] = d["issue_date"].isoformat() if d["issue_date"] else None
+                d["total"] = float(d["total"]) if d["total"] else 0
+                rows.append(d)
         return {"data": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -226,123 +217,97 @@ def spending_by_date():
 
 @app.get("/api/anomalies")
 def detect_anomalies():
-    """
-    Detect potential anomalies:
-    1. Contract splitting — same contractor, same org, multiple small contracts
-    2. Threshold gaming — amounts clustered just below common thresholds
-    3. Unusual concentration — single contractor dominating an org's spending
-    """
+    """Detect potential anomalies in spending."""
     anomalies = []
-
     try:
-        conn = db.pool.getconn()
-        cur = conn.cursor()
-
-        # 1. Contract splitting: same contractor+org with 3+ contracts in our data
-        cur.execute("""
-            SELECT d.org_name, e.contractor_name, COUNT(*) AS contract_count,
-                   SUM(e.amount) AS total, AVG(e.amount) AS avg_amount,
-                   MAX(e.amount) AS max_amount
-            FROM decisions d
-            JOIN expense_items e ON e.decision_id = d.id
-            WHERE e.contractor_name IS NOT NULL AND e.contractor_name != ''
-            GROUP BY d.org_name, e.contractor_name
-            HAVING COUNT(*) >= 3 AND MAX(e.amount) < 20000
-            ORDER BY COUNT(*) DESC
-            LIMIT 20
-        """)
-        cols = [desc[0] for desc in cur.description]
-        for row in cur.fetchall():
-            d = dict(zip(cols, row))
-            d["total"] = float(d["total"])
-            d["avg_amount"] = float(d["avg_amount"])
-            d["max_amount"] = float(d["max_amount"])
-            anomalies.append({
-                "type": "contract_splitting",
-                "severity": "high" if d["contract_count"] >= 5 else "medium",
-                "title": f"Possible contract splitting: {d['contractor_name'][:40]}",
-                "description": (
-                    f"{d['contract_count']} contracts with {d['org_name'][:30]}, "
-                    f"avg €{d['avg_amount']:,.0f}, total €{d['total']:,.0f}"
-                ),
-                "data": d,
-            })
-
-        # 2. Threshold gaming: amounts between 19,000-20,000 (just below 20k threshold)
-        cur.execute("""
-            SELECT d.org_name, e.contractor_name, e.amount, d.ada, d.subject
-            FROM decisions d
-            JOIN expense_items e ON e.decision_id = d.id
-            WHERE e.amount BETWEEN 19000 AND 20000
-            ORDER BY e.amount DESC
-            LIMIT 20
-        """)
-        cols = [desc[0] for desc in cur.description]
-        for row in cur.fetchall():
-            d = dict(zip(cols, row))
-            d["amount"] = float(d["amount"])
-            anomalies.append({
-                "type": "threshold_gaming",
-                "severity": "medium",
-                "title": f"Near-threshold: €{d['amount']:,.0f}",
-                "description": (
-                    f"{d['contractor_name'][:30]} → {d['org_name'][:30]}, "
-                    f"ADA: {d['ada']}"
-                ),
-                "data": d,
-            })
-
-        # 3. Concentration: contractor getting >50% of an org's spending
-        cur.execute("""
-            WITH org_totals AS (
-                SELECT d.org_name, SUM(e.amount) AS org_total
-                FROM decisions d JOIN expense_items e ON e.decision_id = d.id
-                GROUP BY d.org_name
-                HAVING SUM(e.amount) > 50000
-            ),
-            contractor_by_org AS (
-                SELECT d.org_name, e.contractor_name, SUM(e.amount) AS contractor_total
-                FROM decisions d JOIN expense_items e ON e.decision_id = d.id
+        with db.get_cursor(commit=False) as cur:
+            # 1. Contract splitting
+            cur.execute("""
+                SELECT d.org_name, e.contractor_name, COUNT(*) AS contract_count,
+                       SUM(e.amount) AS total, AVG(e.amount) AS avg_amount,
+                       MAX(e.amount) AS max_amount
+                FROM decisions d
+                JOIN expense_items e ON e.decision_id = d.id
                 WHERE e.contractor_name IS NOT NULL AND e.contractor_name != ''
                 GROUP BY d.org_name, e.contractor_name
-            )
-            SELECT c.org_name, c.contractor_name, c.contractor_total,
-                   o.org_total,
-                   ROUND(100.0 * c.contractor_total / o.org_total, 1) AS pct
-            FROM contractor_by_org c
-            JOIN org_totals o ON o.org_name = c.org_name
-            WHERE c.contractor_total > 0.5 * o.org_total
-            ORDER BY pct DESC
-            LIMIT 15
-        """)
-        cols = [desc[0] for desc in cur.description]
-        for row in cur.fetchall():
-            d = dict(zip(cols, row))
-            d["contractor_total"] = float(d["contractor_total"])
-            d["org_total"] = float(d["org_total"])
-            d["pct"] = float(d["pct"])
-            anomalies.append({
-                "type": "concentration",
-                "severity": "high" if d["pct"] > 70 else "medium",
-                "title": f"{d['pct']}% concentration",
-                "description": (
-                    f"{d['contractor_name'][:30]} gets {d['pct']}% of "
-                    f"{d['org_name'][:30]}'s spending (€{d['contractor_total']:,.0f} / €{d['org_total']:,.0f})"
-                ),
-                "data": d,
-            })
+                HAVING COUNT(*) >= 3 AND MAX(e.amount) < 20000
+                ORDER BY COUNT(*) DESC
+                LIMIT 20
+            """)
+            for row in cur.fetchall():
+                d = dict(row)
+                d["total"] = float(d["total"])
+                d["avg_amount"] = float(d["avg_amount"])
+                d["max_amount"] = float(d["max_amount"])
+                anomalies.append({
+                    "type": "contract_splitting",
+                    "severity": "high" if d["contract_count"] >= 5 else "medium",
+                    "title": f"Possible contract splitting: {d['contractor_name'][:40]}",
+                    "description": f"{d['contract_count']} contracts with {d['org_name'][:30]}, avg €{d['avg_amount']:,.0f}, total €{d['total']:,.0f}",
+                    "data": d,
+                })
 
-        cur.close()
-        db.pool.putconn(conn)
+            # 2. Threshold gaming
+            cur.execute("""
+                SELECT d.org_name, e.contractor_name, e.amount, d.ada, d.subject
+                FROM decisions d
+                JOIN expense_items e ON e.decision_id = d.id
+                WHERE e.amount BETWEEN 19000 AND 20000
+                ORDER BY e.amount DESC
+                LIMIT 20
+            """)
+            for row in cur.fetchall():
+                d = dict(row)
+                d["amount"] = float(d["amount"])
+                anomalies.append({
+                    "type": "threshold_gaming",
+                    "severity": "medium",
+                    "title": f"Near-threshold: €{d['amount']:,.0f}",
+                    "description": f"{d['contractor_name'][:30]} → {d['org_name'][:30]}, ADA: {d['ada']}",
+                    "data": d,
+                })
+
+            # 3. Concentration
+            cur.execute("""
+                WITH org_totals AS (
+                    SELECT d.org_name, SUM(e.amount) AS org_total
+                    FROM decisions d JOIN expense_items e ON e.decision_id = d.id
+                    GROUP BY d.org_name
+                    HAVING SUM(e.amount) > 50000
+                ),
+                contractor_by_org AS (
+                    SELECT d.org_name, e.contractor_name, SUM(e.amount) AS contractor_total
+                    FROM decisions d JOIN expense_items e ON e.decision_id = d.id
+                    WHERE e.contractor_name IS NOT NULL AND e.contractor_name != ''
+                    GROUP BY d.org_name, e.contractor_name
+                )
+                SELECT c.org_name, c.contractor_name, c.contractor_total, o.org_total,
+                       ROUND(100.0 * c.contractor_total / o.org_total, 1) AS pct
+                FROM contractor_by_org c
+                JOIN org_totals o ON o.org_name = c.org_name
+                WHERE c.contractor_total > 0.5 * o.org_total
+                ORDER BY pct DESC
+                LIMIT 15
+            """)
+            for row in cur.fetchall():
+                d = dict(row)
+                d["contractor_total"] = float(d["contractor_total"])
+                d["org_total"] = float(d["org_total"])
+                d["pct"] = float(d["pct"])
+                anomalies.append({
+                    "type": "concentration",
+                    "severity": "high" if d["pct"] > 70 else "medium",
+                    "title": f"{d['pct']}% concentration",
+                    "description": f"{d['contractor_name'][:30]} gets {d['pct']}% of {d['org_name'][:30]}'s spending (€{d['contractor_total']:,.0f} / €{d['org_total']:,.0f})",
+                    "data": d,
+                })
 
     except Exception as e:
         logger.error(f"Anomaly detection failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Sort by severity
     severity_order = {"high": 0, "medium": 1, "low": 2}
     anomalies.sort(key=lambda a: severity_order.get(a["severity"], 2))
-
     return {"anomalies": anomalies, "count": len(anomalies)}
 
 
@@ -360,18 +325,14 @@ def recent_decisions(limit: int = 20):
         LIMIT %s
     """
     try:
-        conn = db.pool.getconn()
-        cur = conn.cursor()
-        cur.execute(sql, (limit,))
-        cols = [desc[0] for desc in cur.description]
-        rows = []
-        for row in cur.fetchall():
-            d = dict(zip(cols, row))
-            d["issue_date"] = d["issue_date"].isoformat() if d["issue_date"] else None
-            d["total_amount"] = float(d["total_amount"]) if d["total_amount"] else 0
-            rows.append(d)
-        cur.close()
-        db.pool.putconn(conn)
+        with db.get_cursor(commit=False) as cur:
+            cur.execute(sql, (limit,))
+            rows = []
+            for row in cur.fetchall():
+                d = dict(row)
+                d["issue_date"] = d["issue_date"].isoformat() if d["issue_date"] else None
+                d["total_amount"] = float(d["total_amount"]) if d["total_amount"] else 0
+                rows.append(d)
         return {"data": rows}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
