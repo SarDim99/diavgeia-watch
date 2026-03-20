@@ -78,7 +78,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     # --- Initialize LLM ---
-    print(f"🤖 Connecting to LLM ({args.backend})...")
+    print(f"Connecting to LLM ({args.backend})...")
     llm = LLMClient(
         backend=args.backend,
         model=args.model,
@@ -87,7 +87,7 @@ def main():
     )
 
     if not llm.is_available():
-        print(f"\n❌ Cannot connect to {args.backend} at {llm.base_url}")
+        print(f"\nCannot connect to {args.backend} at {llm.base_url}")
         if args.backend == "ollama":
             print("   Make sure Ollama is running: ollama serve")
             print(f"   And the model is pulled: ollama pull {llm.model}")
@@ -101,14 +101,14 @@ def main():
         if models:
             print(f"   Available models: {', '.join(models)}")
             if llm.model not in models:
-                print(f"\n⚠️  Model '{llm.model}' not found locally.")
+                print(f"\nModel '{llm.model}' not found locally.")
                 print(f"   Pull it with: ollama pull {llm.model}")
                 sys.exit(1)
 
     print(f"   Using model: {llm.model}")
 
     # --- Initialize Database ---
-    print(f"🗄️  Connecting to PostgreSQL ({args.db_host}:{args.db_port})...")
+    print(f"Connecting to PostgreSQL ({args.db_host}:{args.db_port})...")
     db_config = {
         "host": args.db_host,
         "port": args.db_port,
@@ -123,10 +123,10 @@ def main():
         print(f"   Decisions in DB: {stats['total_decisions']}")
         print(f"   Expense items:   {stats['total_expense_items']}")
         if stats['total_decisions'] == 0:
-            print("\n⚠️  Database is empty! Run the ETL pipeline first:")
+            print("\nDatabase is empty! Run the ETL pipeline first:")
             print("   python -m backend.etl_pipeline --from 2024-01-01 --to 2024-01-31")
     except Exception as e:
-        print(f"\n❌ Cannot connect to database: {e}")
+        print(f"\nCannot connect to database: {e}")
         print("   Make sure PostgreSQL is running: docker compose up -d")
         sys.exit(1)
 
@@ -142,12 +142,12 @@ def main():
     if args.question:
         # Single question mode
         result = agent.ask(args.question)
-        print(f"\n💭 {result.thinking}")
+        print(f"\n{result.thinking}")
         if result.sql:
-            print(f"\n📝 SQL:\n{result.sql}")
-        print(f"\n📊 Answer:\n{result.answer}")
+            print(f"\nSQL:\n{result.sql}")
+        print(f"\nAnswer:\n{result.answer}")
         if result.error:
-            print(f"\n⚠️ {result.error}")
+            print(f"\n{result.error}")
     else:
         # Interactive REPL
         agent.repl()

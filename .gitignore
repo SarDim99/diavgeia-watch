@@ -43,3 +43,6 @@ logs/
 .Trashes
 Thumbs.db
 ehthumbs.db
+
+# --- Claude ---
+.claude

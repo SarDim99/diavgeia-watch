@@ -205,7 +205,7 @@ class OrgResolver:
         if best_match:
             return self._by_uid[best_match]
 
-        # 4. DB fuzzy search (if available)
+        # 4. DB fuzzy search
         if self.db:
             return self._db_search(query_clean)
 
@@ -246,7 +246,7 @@ class OrgResolver:
                     seen.add(uid)
                     results.append(self._by_uid[uid])
 
-        # Sort by label length (shorter = more specific = probably better)
+        # Sort by label length
         results.sort(key=lambda x: len(x["label"]))
         return results[:limit]
 

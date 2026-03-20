@@ -1,7 +1,7 @@
 """
 Diavgeia-Watch: CPV Code Lookup
 
-Maps colloquial Greek and English terms to CPV (Common Procurement Vocabulary)
+Maps colloquial Greek and English terms to CPV
 codes used in Greek government spending decisions.
 
 The CPV is a standardized EU classification system. Each code is 8 digits + check digit.
@@ -242,7 +242,7 @@ class CPVLookup:
             for word in query_words:
                 if word in entry["all_text"]:
                     score += 10
-                # Partial match (prefix) — require at least 4 chars
+                # Partial match (prefix)
                 if len(word) >= 4:
                     for kw in entry["keywords_gr"] + entry["keywords_en"]:
                         if kw.startswith(word) or word.startswith(kw):

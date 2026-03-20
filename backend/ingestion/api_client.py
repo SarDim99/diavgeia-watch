@@ -3,7 +3,6 @@ Diavgeia Open Data API Client
 Wrapper for https://diavgeia.gov.gr/luminapi/opendata
 
 Handles: searching decisions, fetching details, pagination, and rate limiting.
-No API key needed — Diavgeia is fully public.
 """
 
 import time

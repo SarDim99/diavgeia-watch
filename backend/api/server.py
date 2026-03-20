@@ -220,7 +220,7 @@ def detect_anomalies():
     anomalies = []
     try:
         with db.get_cursor(commit=False) as cur:
-            # 1. Contract splitting
+            # Contract splitting
             cur.execute("""
                 SELECT d.org_name, e.contractor_name, COUNT(*) AS contract_count,
                        SUM(e.amount) AS total, AVG(e.amount) AS avg_amount,
@@ -246,7 +246,7 @@ def detect_anomalies():
                     "data": d,
                 })
 
-            # 2. Threshold gaming
+            # Threshold gaming
             cur.execute("""
                 SELECT d.org_name, e.contractor_name, e.amount, d.ada, d.subject
                 FROM decisions d
@@ -266,7 +266,7 @@ def detect_anomalies():
                     "data": d,
                 })
 
-            # 3. Concentration
+            # Concentration
             cur.execute("""
                 WITH org_totals AS (
                     SELECT d.org_name, SUM(e.amount) AS org_total

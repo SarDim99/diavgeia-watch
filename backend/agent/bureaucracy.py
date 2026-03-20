@@ -1,5 +1,5 @@
 """
-Diavgeia-Watch: Greek Bureaucratic Intelligence Layer (Phase 3)
+Diavgeia-Watch: Greek Bureaucratic Intelligence Layer
 
 Translates Greek bureaucracy-speak into structured context that helps
 the LLM generate accurate SQL queries. Handles:
@@ -9,9 +9,6 @@ the LLM generate accurate SQL queries. Handles:
 - Decision type classification
 - Procurement method detection
 - Amount threshold awareness (Greek procurement law thresholds)
-
-This replaces the need for fine-tuning by acting as a domain-specific
-preprocessor between the user's question and the LLM.
 """
 
 import re
@@ -248,14 +245,13 @@ class BureaucracyLayer:
             "context_text": "",
         }
 
-        # 1. Match glossary terms (with prefix matching for Greek word forms)
+        # Match glossary terms (with prefix matching for Greek word forms)
         for term, info in self.glossary.items():
             term_no_accent = self._strip_accents(term)
             term_words = term_no_accent.split()
 
             # Check if ALL words from the term appear in the query
-            # Using prefix matching (first 4+ chars) to handle Greek inflections
-            # e.g. "ανάθεση" matches "αναθέσεις", "αναθέσεων", etc.
+            # Using prefix matching (first 4+ chars)
             all_words_match = True
             for tw in term_words:
                 prefix = tw[:min(5, len(tw))]  # first 5 chars as prefix
@@ -273,7 +269,7 @@ class BureaucracyLayer:
                 if info.get("threshold_info"):
                     result["procurement_method"] = info
 
-        # 2. Match KAE codes
+        # Match KAE codes
         kae_match = re.search(r'(?:καε|kae|αλε|ale)\s*[:\s]?\s*(\d{4})', q_lower)
         if kae_match:
             code = kae_match.group(1)
@@ -293,7 +289,7 @@ class BureaucracyLayer:
                     )
                     break
 
-        # 3. Detect AFM references
+        # Detect AFM references
         afm_match = re.search(r'(?:αφμ|afm)\s*[:\s]?\s*(\d{9})', q_lower)
         if afm_match:
             afm = afm_match.group(1)
@@ -301,13 +297,13 @@ class BureaucracyLayer:
                 f"contractor_afm = '{afm}' OR org_afm = '{afm}'"
             )
 
-        # 4. Detect ADA references (Greek uppercase + digits + dash)
+        # Detect ADA references
         ada_match = re.search(r'(?:αδα|ada|ΑΔΑ)\s*[:\s]?\s*([A-ZΑ-Ω0-9]{4,}-[A-ZΑ-Ω0-9]+)', question, re.IGNORECASE)
         if ada_match:
             ada = ada_match.group(1)
             result["sql_hints"].append(f"ada = '{ada}'")
 
-        # 5. Build context text for the LLM
+        # Build context text for the LLM
         context_parts = []
 
         if result["glossary_hits"]:

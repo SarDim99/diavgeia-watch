@@ -6,7 +6,7 @@ Supports multiple backends through a unified interface:
 - Groq (free tier, cloud)
 - Any OpenAI-compatible API
 
-Switch backends by changing config — zero code changes needed.
+Switch backends by changing config.
 
 Usage:
     # Local Ollama

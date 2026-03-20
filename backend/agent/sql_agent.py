@@ -1,18 +1,18 @@
 """
 Diavgeia-Watch: Text-to-SQL Agent
 
-The brain of the system. Takes natural language queries (Greek or English),
+Takes natural language queries (Greek or English),
 uses an LLM to translate them into SQL, executes against PostgreSQL,
 and returns human-readable answers.
 
 Architecture:
     User Query (Greek/English)
-        → LLM interprets intent
-        → Resolves organizations (name → UID)
-        → Resolves CPV codes (concept → code)
-        → Generates safe, read-only SQL
-        → Executes against PostgreSQL
-        → Formats results as natural language
+        - LLM interprets intent
+        - Resolves organizations (name → UID)
+        - Resolves CPV codes (concept → code)
+        - Generates safe, read-only SQL
+        - Executes against PostgreSQL
+        - Formats results as natural language
 
 Usage:
     from backend.agent_sql import SQLAgent
@@ -40,7 +40,7 @@ from backend.agent.llm_client import LLMClient
 from backend.db.manager import DatabaseManager
 from backend.agent.cpv_lookup import CPVLookup
 from backend.agent.org_resolver import OrgResolver
-from backend.agent.bureaucracy import BureaucracyHelper
+from backend.agent.bureaucracy import BureaucracyLayer
 logger = logging.getLogger(__name__)
 
 
@@ -200,15 +200,15 @@ class SQLAgent:
         """
         logger.info(f"Agent received question: {question}")
 
-        # Step 1: Pre-resolve entities to help the LLM
+        # Pre-resolve entities to help the LLM
         pre_context = self._pre_resolve(question)
 
-        # Step 2: Build the full prompt
+        # Build the full prompt
         user_prompt = question
         if pre_context:
             user_prompt = f"{question}\n\n[Context hints: {pre_context}]"
 
-        # Step 3: Ask the LLM to generate SQL
+        # Ask the LLM to generate SQL
         for attempt in range(self.max_retries + 1):
             try:
                 llm_response = self.llm.chat(
@@ -237,7 +237,7 @@ class SQLAgent:
                         error="No SQL generated",
                     )
 
-                # Step 4: Safety check
+                # Safety check
                 if not is_safe_sql(sql):
                     logger.warning(f"Unsafe SQL blocked: {sql[:200]}")
                     if attempt < self.max_retries:
@@ -255,10 +255,10 @@ class SQLAgent:
                         error="Unsafe SQL blocked",
                     )
 
-                # Step 4b: Strip hallucinated filters
+                # Strip hallucinated filters
                 sql = self._strip_hallucinated_filters(sql, pre_context, resolved_cpv, resolved_org)
 
-                # Step 5: Execute the query
+                # Execute the query
                 try:
                     data = self._execute_sql(sql)
                 except Exception as e:
@@ -279,7 +279,7 @@ class SQLAgent:
                         error=error_msg,
                     )
 
-                # Step 6: Format the answer
+                # Format the answer
                 answer = self._format_answer(question, data, explanation)
 
                 return AgentResult(
