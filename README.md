@@ -16,21 +16,21 @@ The dashboard provides at-a-glance views of total spending, anomaly detection (c
 
 ## What's Implemented
 
-### Data Ingestion (Phase 1)
+### Data Ingestion
 
 - **Diavgeia API Client** — wraps the public Diavgeia Open Data API with automatic pagination, rate limiting, and retry logic.
 - **ETL Pipeline** — orchestrates day-by-day harvesting of government decisions. Supports filtering by date range, decision type, and organization. Tracks harvest state so it can resume from where it left off.
 - **Data Maintenance Scripts** — backfill missing organization names (via Diavgeia API lookups), fix decision types from raw JSON, and harvest full months across all major decision types (`Β.2.1` expenditures, `Β.1.3` commitments, `Δ.1` contracts).
 - **PostgreSQL Schema** — normalized schema with `decisions`, `expense_items`, `organizations`, and `harvest_log` tables. Includes trigram indexes for fuzzy Greek text search and pre-built views for spending summaries and near-threshold contract detection.
 
-### AI Query Agent (Phase 2)
+### AI Query Agent
 
 - **Text-to-SQL Agent** — takes a natural language question (Greek or English), uses an LLM to generate a safe read-only SQL query, executes it, and formats the results as a natural language answer. Includes a hallucination guard that strips LLM-invented WHERE clauses the user never asked for, plus retry logic for malformed responses.
 - **LLM Client** — unified abstraction over Ollama (local), Groq (cloud, free tier), and any OpenAI-compatible API. Swap backends by changing a single environment variable.
 - **CPV Lookup** — resolves natural language spending categories (e.g. "καθαριότητα", "road maintenance") to EU Common Procurement Vocabulary codes using keyword matching with Greek and English support.
 - **Organization Resolver** — maps informal organization names ("Αθήνα", "Athens", "ΕΡΤ") to their official Diavgeia UIDs. Combines a hardcoded database of ~50 major organizations with trigram-based fuzzy search against the organizations table.
 
-### Bureaucratic Intelligence (Phase 3)
+### Bureaucratic Intelligence
 
 - **Glossary Engine** — recognizes Greek bureaucratic terminology (απευθείας ανάθεση, ανάληψη υποχρέωσης, σύμβαση, etc.) and injects SQL hints and context into the LLM prompt so queries about procurement processes produce correct filters.
 - **KAE/ALE Budget Code Detection** — extracts and interprets Greek budget codes from queries.
@@ -38,7 +38,7 @@ The dashboard provides at-a-glance views of total spending, anomaly detection (c
 - **Accent-Insensitive Matching** — handles Greek accent variations so that differently accented forms of the same word all match.
 - **Procurement Threshold Awareness** — provides context about Greek procurement thresholds (direct award limits, simplified tender limits, EU thresholds) when relevant.
 
-### Dashboard & API (Phase 4)
+### Dashboard & API
 
 - **FastAPI REST API** with endpoints for:
   - `GET /api/stats` — database overview (total decisions, organizations, contractors, spending)
@@ -65,7 +65,7 @@ The dashboard provides at-a-glance views of total spending, anomaly detection (c
 
 ### Semantic Search (schema prepared, not yet populated)
 
-The database schema already includes a `decision_embeddings` table with a pgvector column (`vector(384)`, matching `all-MiniLM-L6-v2`) and an IVFFlat index. The `DatabaseManager` has `store_embedding()` and `semantic_search()` methods ready. What remains is building the embedding pipeline that chunks decision text, generates embeddings, and populates this table — enabling similarity-based queries alongside the current keyword/SQL approach.
+The database schema already includes a `decision_embeddings` table with a pgvector column (`vector(384)`, matching `all-MiniLM-L6-v2`) and an IVFFlat index. The `DatabaseManager` has `store_embedding()` and `semantic_search()` methods ready. What remains is building the embedding pipeline that chunks decision text, generates embeddings, and populates this table,  enabling similarity-based queries alongside the current keyword/SQL approach.
 
 ### Additional Planned Features
 
