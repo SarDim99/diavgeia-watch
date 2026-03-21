@@ -223,7 +223,3 @@ python -m backend.tests.test_phase3
 ```
 
 ---
-
-## License
-
-This project is for research and educational purposes. Data sourced from [Diavgeia](https://diavgeia.gov.gr) under Greece's open government data provisions.
